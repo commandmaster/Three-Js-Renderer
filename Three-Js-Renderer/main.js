@@ -4,142 +4,180 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 
-class Game {
+
+class RigidBody {
   constructor() {
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    this.renderer = new THREE.WebGLRenderer({
-      canvas: document.querySelector('#bg'),
-    });
-    
-    this.animate = this.animate.bind(this);
 
-    this.keyDown = {"w": false, "a": false, "s": false, "d": false};
   }
 
-  init() {
+  createBox(mass, pos, rot, size) {
+    this.transform = new Ammo.btTransform();
+    this.transform.setIdentity();
+    this.transform.setOrigin(new Ammo.btVector3(pos.x, pos.y, pos.z));
+    this.transform.setRotation(new Ammo.btQuaternion(rot.x, rot.y, rot.z, rot.w));
+    this.motionState = new Ammo.btDefaultMotionState(this.transform);
 
-    this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.camera.position.setZ(30);
-    this.renderer.render(this.scene, this.camera);
+    const btSize = new Ammo.btVector3(size.x * 0.5, size.y * 0.5, size.z * 0.5);
+    this.shape = new Ammo.btBoxShape(btSize);
+    this.shape.setMargin(0.05);
 
-    this.mouseX = 0;
-    this.mouseY = 0;
-
-    window.addEventListener('mousemove', (e) => {
-      console.log(e);
-      this.mouseX = (e.clientX / window.innerWidth) * 2 - 1;
-      this.mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
-    });
-
-    this.addTorus();
-    this.addLights();
-    this.addStars();
-    this.addSpaceTexture();
-    this.setUpKeyControls();
-    this.animate();
-    
-  }
-
-  setUpKeyControls() {
-    document.addEventListener('keydown', (e) => {
-      if (e.key in this.keyDown) {
-        this.keyDown[e.key] = true;
-      }
-
-    });
-
-    document.addEventListener('keyup', (e) => {
-      if (e.key in this.keyDown) {
-        this.keyDown[e.key] = false;
-      }
-    });
-  }
-
-  addTorus() {
-    const geometry = new THREE.TorusGeometry(10, 3, 16, 100);
-    const material = new THREE.MeshStandardMaterial({ color: 0xFF6347 });
-    const torus = new THREE.Mesh(geometry, material);
-    this.scene.add(torus);
-    this.torus = torus;
-  }
-
-  addLights() {
-    const pointLight = new THREE.PointLight(0xffffff);
-    pointLight.position.set(20, 20, 20);
-    const ambientLight = new THREE.AmbientLight(0xffffff);
-    this.scene.add(pointLight, ambientLight);
-    this.lightHelper = new THREE.PointLightHelper(pointLight);
-    this.scene.add(this.lightHelper);
-  }
-
-  addStars() {
-    function addStar() {
-      const geometry = new THREE.SphereGeometry(0.25, 24, 24);
-      const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
-      const star = new THREE.Mesh(geometry, material);
-      const [x, y, z] = Array(3).fill().map(() => THREE.MathUtils.randFloatSpread(100));
-      star.position.set(x, y, z);
-      this.scene.add(star);
-    }
-    Array(200).fill().forEach(addStar.bind(this));
-  }
-
-  addSpaceTexture() {
-    const spaceTexture = new THREE.TextureLoader().load('space.jpg');
-    this.scene.background = spaceTexture;
-  }
-
-  animate() {
-    requestAnimationFrame(this.animate);
-  
-    
-    
-    if (this.keyDown["w"]) {
-      const direction = new THREE.Vector3;
-      let speed = 1.0;
-
-      this.camera.getWorldDirection(direction);
-      this.camera.position.addScaledVector(direction, speed);
+    this.inertia = new Ammo.btVector3(0, 0, 0);
+    if (mass > 0){
+      this.shape.calculateLocalInertia(mass, this.inertia);
     }
 
-    if (this.keyDown["s"]) {
-      const direction = new THREE.Vector3;
-      let speed = 1.0;
-
-      this.camera.getWorldDirection(direction);
-      this.camera.position.addScaledVector(direction, -speed);
-    }
-
-    if (this.keyDown["a"]) {
-      const direction = new THREE.Vector3;
-      let speed = 1.0;
-
-      this.camera.getWorldDirection(direction);
-      direction.applyAxisAngle(new THREE.Vector3(0, -1, 0), Math.PI / 2);
-      this.camera.position.addScaledVector(direction, -speed);
-    }
-
-    if (this.keyDown["d"]) {
-      const direction = new THREE.Vector3;
-      let speed = 1.0;
-
-      this.camera.getWorldDirection(direction);
-      direction.applyAxisAngle(new THREE.Vector3(0, -1, 0), Math.PI / 2);
-      this.camera.position.addScaledVector(direction, speed);
-    }
-
-    this.camera.rotation.set(this.mouseY, -this.mouseX, 0);
-
-    this.torus.rotation.x += 0.01;
-    this.torus.rotation.y += 0.005;
-    this.torus.rotation.z += 0.01;
-    
-    this.renderer.render(this.scene, this.camera);
+    this.info = new Ammo.btRigidBodyConstructionInfo(mass, this.motionState, this.shape, this.inertia);
+    this.body = new Ammo.btRigidBody(this.info);
 
   }
 }
+class BasicWorld{
+  constructor() {
+    
+  }
 
-const game = new Game();
-game.init();
+  init() {
+    this.collisonConfiguration = new Ammo.btDefaultCollisionConfiguration();
+    this.dispatcher = new Ammo.btCollisionDispatcher(this.collisonConfiguration);
+    this.broadphase = new Ammo.btDbvtBroadphase();
+    this.solver = new Ammo.btSequentialImpulseConstraintSolver();
+    this.physicsWorld = new Ammo.btDiscreteDynamicsWorld(this.dispatcher, this.broadphase, this.solver, this.collisonConfiguration);
+    this.physicsWorld.setGravity(new Ammo.btVector3(0, -10, 0));
+
+    this.scene = new THREE.Scene();
+
+    const cameraSettings = {fov: 60, aspect: window.innerWidth / window.innerHeight, near: 1, far: 1000};
+    this.camera = new THREE.PerspectiveCamera(cameraSettings.fov, cameraSettings.aspect, cameraSettings.near, cameraSettings.far);
+    this.camera.position.set(75, 20, 0);
+
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: document.querySelector('#bg'),
+    });
+
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+
+    
+
+    window.addEventListener('resize', () => {
+      this.camera.aspect = window.innerWidth / window.innerHeight;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+
+
+    let light = new THREE.DirectionalLight(0xffffff, 1);
+    light.position.set(100, 100, 100);
+    light.target.position.set(0, 0, 0);
+    light.castShadow = true;
+    light.shadow.bias = -0.01;
+    light.shadow.mapSize.width = 2048;
+    light.shadow.mapSize.height = 2048;
+    light.shadow.camera.near = 1;
+    light.shadow.camera.far = 500;
+    light.shadow.camera.left = 200;
+    light.shadow.camera.right = -200;
+    light.shadow.camera.top = 200;
+    light.shadow.camera.bottom = -200;
+    this.scene.add(light);
+
+    let ambientLight = new THREE.AmbientLight(0x404040);
+    this.scene.add(ambientLight);
+
+
+    const ground = new THREE.Mesh(new THREE.BoxGeometry(100, 1, 100), new THREE.MeshStandardMaterial({color: 0x808080}));
+    ground.castShadow = false;
+    ground.receiveShadow = true;
+    this.scene.add(ground);
+
+    const rbGround = new RigidBody();
+    rbGround.createBox(0, ground.position, ground.quaternion, new THREE.Vector3(100, 1, 100));
+    this.physicsWorld.addRigidBody(rbGround.body);
+
+
+    const box = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10), new THREE.MeshStandardMaterial({color: 0x00ff00}));
+    box.castShadow = true;
+    box.receiveShadow = true;
+    box.position.set(0, 25, 0);
+    this.scene.add(box);
+
+    const rbBox = new RigidBody();
+    rbBox.createBox(5, box.position, box.quaternion, new THREE.Vector3(10, 10, 10));
+    this.physicsWorld.addRigidBody(rbBox.body);
+
+    this.rigidBodies = [{mesh: box, rb: rbBox}, {mesh: ground, rb: rbGround}];
+
+    this.lastUpdateTime = 0;
+
+    this.update();
+  }
+
+
+  update() {
+    requestAnimationFrame((t) => {
+      if (this.lastUpdateTime === 0) {
+        this.lastUpdateTime = t;
+      }
+
+      const deltaTime = t - this.lastUpdateTime;
+      const seconds = deltaTime * 0.001;
+
+      this.physicsWorld.stepSimulation(seconds, 10);
+
+      for (let i = 0; i < this.rigidBodies.length; i++) {
+        this.tempTransform = new Ammo.btTransform();
+
+        this.rigidBodies[i].rb.motionState.getWorldTransform(this.tempTransform);
+        const origin = this.tempTransform.getOrigin();
+        const rotation = this.tempTransform.getRotation();
+
+        const pos3 = new THREE.Vector3(origin.x(), origin.y(), origin.z());
+        const rot4 = new THREE.Quaternion(rotation.x(), rotation.y(), rotation.z(), rotation.w());
+
+        this.rigidBodies[i].mesh.position.copy(pos3);
+        this.rigidBodies[i].mesh.quaternion.copy(rot4);
+      }
+
+      this.renderer.render(this.scene, this.camera);
+      this.controls.update();
+
+      this.lastUpdateTime = t;
+      
+      this.update();
+
+    
+    });
+  }
+
+}
+
+let WORLD = null;
+window.addEventListener("DOMContentLoaded", () => {
+  Ammo().then((lib) => {
+    Ammo = lib;
+    WORLD = new BasicWorld();
+    
+    WORLD.init();
+  });
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// const game = new Game();
+// game.init();
+// game.createPlayer("player1", 0x00ff00, 0, 0, 0, 5, 5, 5, new THREE.Vector3(0, 0, 0));
