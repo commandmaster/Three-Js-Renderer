@@ -5,6 +5,13 @@ import { GUI } from './jsm/libs/lil-gui.module.min.js'
 
 
 
+
+
+
+
+
+
+
 class MultiplayerHandler {
   constructor(serverAdress = "http://localhost:3000") {
     this.socket = io.connect(serverAdress);
@@ -18,24 +25,65 @@ class MultiplayerHandler {
     });
 
     this.socket.on('becomePlayer', (data) => {
+      this.clientType = "player";
+      const socketIdText = document.createElement('p');
+      socketIdText.style.color = "red";
+      socketIdText.style.position = "absolute";
+      socketIdText.style.zIndex = "100";
+      socketIdText.style.top = "0";
+
+      socketIdText.textContent = `Socket ID: ${this.socket.id} - Player`;
+      document.body.appendChild(socketIdText);
+
       const actors = data.actors;
+      const player = data.players[this.socket.id];
+
+      for (const player in data.players) {
+        if (data.players[player].id !== this.socket.id) {
+          actors[data.players[player].id] = data.players[player];
+        }
+      }
+      
       if (data.gameState.state === "lobby") {
-        this.world.setupLobby(actors);
+        this.world.setupLobby(actors, player);
         this.clientType = "player";
       }
     });
 
     this.socket.on('becomeHost', (data) => {
+      const socketIdText = document.createElement('p');
+      socketIdText.style.color = "red";
+      socketIdText.style.position = "absolute";
+      socketIdText.style.zIndex = "100";
+      socketIdText.style.top = "0";
+      socketIdText.textContent = `Socket ID: ${this.socket.id} - Host`;
+      document.body.appendChild(socketIdText);
+
+
       const actors = data.actors;
+
+      for (const player in data.players) {
+        if (data.players[player].id !== this.socket.id) {
+          actors[data.players[player].id] = data.players[player];
+        }
+      }
+
       if (data.gameState.state === "lobby") {
-        this.world.setupLobby(actors);
+        this.world.setupLobby(actors, null);
         this.clientType = "host";
       }
     });
 
     this.socket.on('becomeSpectator', () => {
       const actors = data.actors;
-      this.world.setupLobby(actors);
+
+      for (const player in data.players) {
+        if (data.players[player].id !== this.socket.id) {
+          actors[data.players[player].id] = data.players[player];
+        }
+      }
+
+      this.world.setupLobby(actors, null);
       this.clientType = "spectator";
     });
     
@@ -56,6 +104,61 @@ class MultiplayerHandler {
         
       }
     });
+
+    this.socket.on('updateGame', (data) => {
+      for (const player in data.players) {
+        const tempId = data.players[player].id;
+        if (tempId !== this.socket.id) {
+          if (this.world.objectManager.actors[tempId]) {
+            this.world.objectManager.actors[tempId].pos = new THREE.Vector3(data.players[tempId].pos.x, data.players[tempId].pos.y, data.players[tempId].pos.z);
+            this.world.objectManager.actors[tempId].rot = new THREE.Quaternion(data.players[tempId].rot.x, data.players[tempId].rot.y, data.players[tempId].rot.z, data.players[tempId].rot.w);
+
+            this.world.objectManager.actors[tempId].rigidBody.body.getMotionState().setWorldTransform(new Ammo.btTransform(new Ammo.btQuaternion(data.players[tempId].rot.x, data.players[tempId].rot.y, data.players[tempId].rot.z, data.players[tempId].rot.w), new Ammo.btVector3(data.players[tempId].pos.x, data.players[tempId].pos.y, data.players[tempId].pos.z)));
+          }
+
+          else{
+            this.world.objectManager.createActor(tempId, data.players[tempId].color, data.players[tempId].mass, data.players[tempId].pos, data.players[tempId].rot, data.players[tempId].size);
+          }
+        }
+
+      }
+
+      for (const actor in data.actors) {
+        if (this.world.objectManager.actors[actor]) {
+          this.world.objectManager.actors[actor].pos = new THREE.Vector3(data.actors[actor].pos.x, data.actors[actor].pos.y, data.actors[actor].pos.z);
+          this.world.objectManager.actors[actor].rot = new THREE.Quaternion(data.actors[actor].rot.x, data.actors[actor].rot.y, data.actors[actor].rot.z, data.actors[actor].rot.w);
+          this.world.objectManager.actors[actor].rigidBody.body.getMotionState().setWorldTransform(new Ammo.btTransform(new Ammo.btQuaternion(data.actors[actor].rot.x, data.actors[actor].rot.y, data.actors[actor].rot.z, data.actors[actor].rot.w), new Ammo.btVector3(data.actors[actor].pos.x, data.actors[actor].pos.y, data.actors[actor].pos.z)));
+        }
+
+        else{
+          this.world.objectManager.createActor(actor, data.actors[actor].color, data.actors[actor].mass, data.actors[actor].pos, data.actors[actor].rot, data.actors[actor].size);
+        }
+      }
+    });
+
+    this.socket.on('destroyPlayer', (data) => {
+      this.world.objectManager.deleteActor(data);
+    });
+
+    this.socket.on("getPhysicsData", (data, callback) => {
+      if (this.clientType === "player") {
+        const tempTransform = new Ammo.btTransform();
+
+        this.world.objectManager.player.rigidBody.motionState.getWorldTransform(tempTransform);
+        const origin = tempTransform.getOrigin();
+        const rotation = tempTransform.getRotation();
+
+        const pos = {x: origin.x(), y: origin.y(), z: origin.z()};
+        const rot = {x: rotation.x(), y: rotation.y(), z: rotation.z(), w: rotation.w()};
+
+
+        callback({pos, rot});
+      }
+
+      else{
+        callback(null);
+      }
+    });
   }
 
 }
@@ -71,24 +174,31 @@ class Actor {
     this.size = size;
 
 
+    this.pos = new THREE.Vector3(this.pos.x, this.pos.y, this.pos.z);
+    this.rot = new THREE.Quaternion(this.rot.x, this.rot.y, this.rot.z, this.rot.w);
+
+
     this.initRigidBody();
     this.initMesh();
 
   }
 
   initRigidBody(){
-    this.rigidBody = this.gameWorld.physicsSystem.addBoxRigidBody(this.mass, this.pos, this.rot, this.size);
+    const tempRB = this.gameWorld.physicsSystem.addBoxRigidBody(this.mass, this.pos, this.rot, new THREE.Vector3(this.size.x, this.size.y, this.size.z))
+    this.rbMesh = tempRB.mesh;
+
+    this.rigidBody = tempRB.rb;
   }
 
   initMesh(){
     this.mesh = new THREE.Mesh(new THREE.BoxGeometry(this.size.x, this.size.y, this.size.z), new THREE.MeshStandardMaterial({color: this.color}));
     this.mesh.position.set(this.pos.x, this.pos.y, this.pos.z);
     this.mesh.quaternion.set(this.rot.x, this.rot.y, this.rot.z, this.rot.w);
+    
     this.gameWorld.scene.add(this.mesh);
   }
 
   update(){
-
     const tempTransform = new Ammo.btTransform();
 
     this.rigidBody.motionState.getWorldTransform(tempTransform);
@@ -98,28 +208,58 @@ class Actor {
     const pos3 = new THREE.Vector3(origin.x(), origin.y(), origin.z());
     const rot4 = new THREE.Quaternion(rotation.x(), rotation.y(), rotation.z(), rotation.w());
 
+
     this.mesh.position.copy(pos3);
     this.mesh.quaternion.copy(rot4);
+  }
+
+  delete(){
+    this.gameWorld.scene.remove(this.mesh);
+    this.gameWorld.physicsSystem.physicsWorld.removeRigidBody(this.rigidBody.body);
   }
 }
 
 class Player {
-  constructor(gameWorld, color, mass, pos, rot, size, spawnPos) {
+  constructor(gameWorld, color, mass, pos, rot, size) {
     this.gameWorld = gameWorld;
     this.color = color;
     this.mass = mass;
     this.pos = pos;
     this.rot = rot;
     this.size = size;
-    this.spawnPos = spawnPos;
+
+
+    this.pos = new THREE.Vector3(this.pos.x, this.pos.y, this.pos.z);
+    this.rot = new THREE.Quaternion(this.rot.x, this.rot.y, this.rot.z, this.rot.w);
+    this.size = new THREE.Vector3(this.size.x, this.size.y, this.size.z);
 
     this.initRigidBody();
     this.initMesh();
 
+    window.addEventListener('keydown', (e) => {
+      if (e.key === "w") {
+        this.rigidBody.body.applyCentralImpulse(new Ammo.btVector3(0, 0, -1));
+      }
+
+      if (e.key === "s") {
+        this.rigidBody.body.applyCentralImpulse(new Ammo.btVector3(0, 0, 1));
+      }
+
+      if (e.key === "a") {
+        this.rigidBody.body.applyCentralImpulse(new Ammo.btVector3(-1, 0, 0));
+      }
+
+      if (e.key === "d") {
+        this.rigidBody.body.applyCentralImpulse(new Ammo.btVector3(1, 0, 0));
+      }
+    });
+
   }
 
   initRigidBody(){
-    this.rigidBody = this.gameWorld.physicsSystem.addBoxRigidBody(this.mass, this.pos, this.rot, this.size);
+    const tempRB = this.gameWorld.physicsSystem.addBoxRigidBody(this.mass, this.pos, this.rot, this.size)
+    this.rbMesh = tempRB.mesh;
+    this.rigidBody = tempRB.rb;
   }
 
   initMesh(){
@@ -130,12 +270,11 @@ class Player {
   }
 
   update(){
+    this.tempTransform = new Ammo.btTransform();
 
-    const tempTransform = new Ammo.btTransform();
-
-    this.rigidBody.motionState.getWorldTransform(tempTransform);
-    const origin = tempTransform.getOrigin();
-    const rotation = tempTransform.getRotation();
+    this.rigidBody.motionState.getWorldTransform(this.tempTransform);
+    const origin = this.tempTransform.getOrigin();
+    const rotation = this.tempTransform.getRotation();
 
     const pos3 = new THREE.Vector3(origin.x(), origin.y(), origin.z());
     const rot4 = new THREE.Quaternion(rotation.x(), rotation.y(), rotation.z(), rotation.w());
@@ -156,16 +295,36 @@ class ObjectManager{
 
   createActor(name, color, mass, pos, rot, size) {
     this.actors[name] = new Actor(this.gameWorld, name, color, mass, pos, rot, size);
-    console.log(this.actors);
   }
 
   createPlayer(color, mass, pos, rot, size) {
     this.player = new Player(this.gameWorld, color, mass, pos, rot, size);
   }
 
+  deleteActor(name){
+    this.gameWorld.scene.remove(this.actors[name].rbMesh);
+  
+    for (let i = 0; i < this.gameWorld.physicsSystem.rigidBodies.length; i++) {
+      if (this.gameWorld.physicsSystem.rigidBodies[i].rb === this.actors[name].rigidBody) {
+        this.gameWorld.physicsSystem.rigidBodies.splice(i, 1);
+      }
+    }
+
+    this.actors[name].rigidBody.delete();
+
+
+
+    this.actors[name].delete();
+    delete this.actors[name];
+  }
+
   update(){
     for (const actor in this.actors) {
       this.actors[actor].update();
+    }
+
+    if (this.player !== null) {
+      this.player.update();
     }
   }
 }
@@ -190,8 +349,9 @@ class PhysicsSystem {
     rb.createBox(mass, pos, rot, size);
     this.physicsWorld.addRigidBody(rb.body);
 
+    let tempMesh = null;
     if (this.gameWorld.gameMode === "sceneView"){
-      const tempMesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshStandardMaterial({color: 0x00ff00, wireframe: true}));
+      tempMesh = new THREE.Mesh(new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshStandardMaterial({color: 0x00ff00, wireframe: true}));
       this.gameWorld.scene.add(tempMesh);
       this.rigidBodies.push({rb, mesh: tempMesh});
     }
@@ -200,7 +360,7 @@ class PhysicsSystem {
       this.rigidBodies.push({rb, mesh: null});
     }
 
-    return rb;
+    return {rb, mesh: tempMesh};
     
   }
 
@@ -226,9 +386,10 @@ class PhysicsSystem {
     if (this.gameWorld.gameMode === "sceneView"){
       updateMeshes();
     }
-
-    
   }
+
+
+
 }
 
 
@@ -257,8 +418,18 @@ class RigidBody {
     this.body = new Ammo.btRigidBody(this.info);
   }
 
+  delete(){
+    Ammo.destroy(this.shape);
+    Ammo.destroy(this.motionState);
+    Ammo.destroy(this.inertia);
+    Ammo.destroy(this.info);
+
+    Ammo.destroy(this.body);
+  }
 
 }
+
+
 class BasicWorld{
   constructor(gameMode = "sceneView") {
     this.gameMode = gameMode;
@@ -298,7 +469,7 @@ class BasicWorld{
     this.update();
   }
 
-  setupLobby(actors) {
+  setupLobby(actors, player) {
     let light = new THREE.DirectionalLight(0xffffff, 1);
     light.position.set(100, 100, 100);
     light.target.position.set(0, 0, 0);
@@ -322,7 +493,11 @@ class BasicWorld{
     }
 
     this.physicsSystem.addBoxRigidBody(0, new THREE.Vector3(0, -5, 0), new THREE.Quaternion(0, 0, 0, 1), new THREE.Vector3(100, 10, 100));
-    this.physicsSystem.addBoxRigidBody(1, new THREE.Vector3(0, 10, 0), new THREE.Quaternion(0, 0, 0, 1), new THREE.Vector3(5, 5, 5));
+
+    if (player !== null) {
+      this.objectManager.createPlayer(player.color, player.mass, player.pos, player.rot, player.size);
+    }
+    
   }
 
   setupGame(actors, player) {

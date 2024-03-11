@@ -11,34 +11,50 @@ app.use('/jsm/', express.static(path.join(__dirname, 'node_modules/three/example
 
 const socket = require('socket.io')
 
+
 const io = socket(server)
 
 io.sockets.on('connection', handleNewConnection);
 console.log('Server is running on port 3000')
 
 class BackendActor{
-    constructor(id, color, mass, pos, rot, size, spawnPos) {
-        this.id = id;
+    constructor(name, color, mass, pos, rot, size) {
+        this.name = name;
         this.color = color;
         this.mass = mass;
         this.pos = pos;
         this.rot = rot;
         this.size = size;
-        this.spawnPos = spawnPos;
+        
     }
 }
 
 class BackendPlayer {
-    constructor(id, ready, color, mass, pos, rot, size, spawnPos){
+    constructor(id, color, mass, pos, rot, size){
         this.id = id;
-        this.ready = ready;
+
         this.color = color;
         this.mass = mass;
         this.pos = pos;
         this.rot = rot;
         this.size = size;
-        this.spawnPos = spawnPos;
+
     }
+}
+
+class BackendLevel {
+    constructor({name, actors = {}, players ={}}) {
+        this.name = name;
+        this.actors = actors;
+        this.players = players;
+    }
+
+    addActor(name, actor) {
+       
+    }
+
+    
+
 }
 
 
@@ -56,7 +72,8 @@ class GameBackend {
         this.spectators = {};
         this.gameState = {state: 'lobby', playerCount: 0};
 
-        this.createActor('actor1', '#ff0000', 1, {x: 0, y: 20, z: 0}, {x: 0, y: 0, z: 0, w:0}, {x: 10, y: 10, z: 10}, {x: 0, y: 0, z: 0})
+        //this.createActor('actor1', '#ff0000', 1, {x: 0, y: 20, z: 0}, {x: 0, y: 0, z: 0, w:1}, {x: 10, y: 10, z: 10})
+        
 
         this.maxRoomSize = 6;
         setInterval(() => this.update(), 1000/60);
@@ -97,7 +114,7 @@ class GameBackend {
                 });
             }
             else if (Object.values(this.players).length < this.maxRoomSize) {
-                this.createPlayer(socket.id, 'blue', 1, {x: 0, y: 0, z: 0}, {x: 0, y: 0, z: 0}, {x: 1, y: 1, z: 1}, {x: 0, y: 0, z: 0});
+                this.createPlayer(socket.id, 'blue', 1, {x: 0, y: 10, z: 0}, {x: 0, y: 0, z: 0, w:1}, {x: 5, y: 5, z: 5});
                 socket.emit('becomePlayer', {gameState: this.gameState, players: this.players, host: this.host, spectators: this.spectators, actors: this.backendActors});
                 socket.on('playerReady', () => {
                     this.players[socket.id].ready = true;
@@ -127,6 +144,8 @@ class GameBackend {
         if (this.players[socket.id]) {
             this.gameState.playerCount -= 1;
             delete this.players[socket.id];
+
+            io.sockets.emit('destroyPlayer', socket.id)
         }
         if (this.host){
             if (this.host.id === socket.id) {
@@ -136,18 +155,34 @@ class GameBackend {
         if (this.spectators[socket.id]) {
             delete this.spectators[socket.id];
         }
+
     }
 
-    createActor(id, ready, color, mass, pos, rot, size, spawnPos) {
-        this.backendActors[id] = new BackendActor(id, ready, color, mass, pos, rot, size, spawnPos);
+    createActor(name, color, mass, pos, rot, size) {
+        this.backendActors[name] = new BackendActor(name, color, mass, pos, rot, size);
     }
 
-    createPlayer(id, color, mass, pos, rot, size, spawnPos) {
-        this.players[socket.id] = new BackendPlayer(id, color, mass, pos, rot, size, spawnPos);    
+    createPlayer(id, color, mass, pos, rot, size) {
+        this.players[id] = new BackendPlayer(id, color, mass, pos, rot, size);    
     }
 
     update() {
+        for (let playerId in this.players) {
+            const socketRef = io.sockets.sockets.get(playerId)
+            if (socketRef) {
+                socketRef.timeout(350).emit("getPhysicsData", {}, (err, response) => {
+                    //console.log(response);
+                   if (response !== null) {
+                        this.players[playerId].pos = response.pos;
+                        this.players[playerId].rot = response.rot;
+                   }
+                });
+            }
+        }
+
+
         io.sockets.emit('updateGame', {gameState:this.gameState, players:this.players, host:this.host, spectators:this.spectators, actors:this.backendActors});
+        
     }
 }
 
