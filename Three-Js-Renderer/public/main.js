@@ -7,11 +7,6 @@ import { GUI } from './jsm/libs/lil-gui.module.min.js'
 
 
 
-
-
-
-
-
 class MultiplayerHandler {
   constructor(serverAdress = "http://localhost:3000") {
     this.socket = io.connect(serverAdress);
@@ -237,20 +232,29 @@ class Player {
     this.initMesh();
 
     window.addEventListener('keydown', (e) => {
+      const speed = 25;
       if (e.key === "w") {
-        this.rigidBody.body.applyCentralImpulse(new Ammo.btVector3(0, 0, -1));
+        const currentVelocity = this.rigidBody.body.getLinearVelocity();
+        currentVelocity.setZ(-speed);
+        this.rigidBody.body.setLinearVelocity(currentVelocity);
       }
 
       if (e.key === "s") {
-        this.rigidBody.body.applyCentralImpulse(new Ammo.btVector3(0, 0, 1));
+        const currentVelocity = this.rigidBody.body.getLinearVelocity();
+        currentVelocity.setZ(speed);
+        this.rigidBody.body.setLinearVelocity(currentVelocity);
       }
 
       if (e.key === "a") {
-        this.rigidBody.body.applyCentralImpulse(new Ammo.btVector3(-1, 0, 0));
+        const currentVelocity = this.rigidBody.body.getLinearVelocity();
+        currentVelocity.setX(-speed);
+        this.rigidBody.body.setLinearVelocity(currentVelocity);
       }
 
       if (e.key === "d") {
-        this.rigidBody.body.applyCentralImpulse(new Ammo.btVector3(1, 0, 0));
+        const currentVelocity = this.rigidBody.body.getLinearVelocity();
+        currentVelocity.setX(speed);
+        this.rigidBody.body.setLinearVelocity(currentVelocity);
       }
     });
 
@@ -339,7 +343,7 @@ class PhysicsSystem {
     this.broadphase = new Ammo.btDbvtBroadphase();
     this.solver = new Ammo.btSequentialImpulseConstraintSolver();
     this.physicsWorld = new Ammo.btDiscreteDynamicsWorld(this.dispatcher, this.broadphase, this.solver, this.collisonConfiguration);
-    this.physicsWorld.setGravity(new Ammo.btVector3(0, -10, 0));
+    this.physicsWorld.setGravity(new Ammo.btVector3(0, -20, 0));
 
     this.rigidBodies = [];
   }

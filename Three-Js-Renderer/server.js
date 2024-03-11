@@ -170,9 +170,10 @@ class GameBackend {
         for (let playerId in this.players) {
             const socketRef = io.sockets.sockets.get(playerId)
             if (socketRef) {
-                socketRef.timeout(350).emit("getPhysicsData", {}, (err, response) => {
+                socketRef.timeout(180).emit("getPhysicsData", {}, (err, response) => {
                     //console.log(response);
-                   if (response !== null) {
+                   if (response !== null && response !== undefined) {
+
                         this.players[playerId].pos = response.pos;
                         this.players[playerId].rot = response.rot;
                    }
